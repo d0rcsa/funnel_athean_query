@@ -1,0 +1,60 @@
+with
+new_regs as(
+    select distinct user_id, country_code, city_name, type_interaction , ts
+    from awsdatacatalog.marketing_db.fact_product
+    where datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d')
+    and datehour < date_format(current_date, '%Y/%m/%d') 
+    and country_code = 'DE'
+    and type_interaction ='action.user.create'
+    group by country_code, type_interaction, ts, user_id, city_name
+),
+
+d0_5gpd as(
+    select new_regs.user_id, date(new_regs.ts) as "reg_day", date(fact_product.ts) as "gpd_day",
+        sum(case when fact_product.type_interaction = 'action.getposts.details_new' then 1 else 0 end) as "GPD"
+    from new_regs
+    join awsdatacatalog.marketing_db.fact_product
+        on awsdatacatalog.marketing_db.fact_product.user_id = new_regs.user_id
+    where fact_product.datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d')
+    and fact_product.datehour <=  date_format(new_regs.ts + interval '1' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.getposts.details_new'
+    group by new_regs.user_id, date(new_regs.ts), fact_product.country_code, fact_product.type_interaction, date(fact_product.ts)
+    having sum(case when fact_product.type_interaction = 'action.getposts.details_new' then 1 else 0 end) >= 5
+),
+
+d0_VoteUp as(
+    select new_regs.user_id as user_id, date(new_regs.ts) as "reg_day", 
+    date(fact_product.ts) as "d0vote_day"
+    from new_regs
+    join awsdatacatalog.marketing_db.fact_product
+        on fact_product.user_id = new_regs.user_id
+    where fact_product.datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d') 
+    and fact_product.datehour <  date_format(new_regs.ts + interval '1' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.post.voteup'
+    group by new_regs.user_id, date(new_regs.ts), date(fact_product.ts)
+    having sum(case when fact_product.type_interaction = 'action.post.voteup' then 1 else 0 end) >= 1
+)
+
+
+select new_regs.country_code as "country", 
+    new_regs.city_name as "reg_city", 
+    count(distinct new_regs.user_id) as "new_regs", 
+    count(distinct d0_5gpd.user_id) as "d0_5gpd",
+    count(distinct d0_VoteUp.user_id) as "d0_voteup",
+    date(new_regs.ts) as "reg_day"
+    
+    
+    
+    
+    from new_regs
+    left join d0_5gpd
+        on new_regs.user_id = d0_5gpd.user_id
+    left join d0_VoteUp
+        on d0_5gpd.user_id = d0_VoteUp.user_id
+
+group by
+    new_regs.country_code, 
+    new_regs.city_name,
+    date(new_regs.ts)
+    
+    
