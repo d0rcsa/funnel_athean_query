@@ -1,0 +1,319 @@
+with
+new_regs as(
+    select distinct user_id, country_code, city_name, type_interaction, date(ts) as "reg_day" , ts
+    from awsdatacatalog.marketing_db.fact_product
+    where datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d')
+    and datehour < date_format(current_date, '%Y/%m/%d') 
+    and country_code = 'DE'
+    and type_interaction ='action.user.create'
+    group by country_code, type_interaction, date(ts), ts, user_id, city_name
+),
+
+d0_5gpd as(
+    select new_regs.user_id, date(new_regs.ts) as "reg_day", fact_product.country_code, fact_product.type_interaction, date(fact_product.ts) as "gpd_day",
+        sum(case when fact_product.type_interaction = 'action.getposts.details_new' then 1 else 0 end) as "GPD"
+    from new_regs
+    join awsdatacatalog.marketing_db.fact_product
+        on awsdatacatalog.marketing_db.fact_product.user_id = new_regs.user_id
+    where fact_product.datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d')
+    and fact_product.datehour <=  date_format(new_regs.ts + interval '1' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.getposts.details_new'
+    group by new_regs.user_id, date(new_regs.ts), fact_product.country_code, fact_product.type_interaction, date(fact_product.ts)
+    having sum(case when fact_product.type_interaction = 'action.getposts.details_new' then 1 else 0 end) >= 5
+),
+
+d0_VoteUp as(
+    select new_regs.user_id as user_id, date(new_regs.ts) as "reg_day", fact_product.country_code, fact_product.type_interaction, date(fact_product.ts) as "d0vote_day",
+        sum(case when fact_product.type_interaction = 'action.post.voteup' then 1 else 0 end) as "d0VoteUp"
+    from new_regs
+    join awsdatacatalog.marketing_db.fact_product
+        on fact_product.user_id = new_regs.user_id
+    where fact_product.datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d') 
+    and fact_product.datehour <  date_format(new_regs.ts + interval '1' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.post.voteup'
+    group by new_regs.user_id, date(new_regs.ts), fact_product.country_code, fact_product.type_interaction, date(fact_product.ts)
+    having sum(case when fact_product.type_interaction = 'action.post.voteup' then 1 else 0 end) >= 1
+),
+
+
+
+retention1_activated as (
+with
+d0_activated as (
+with
+    new_regs as(
+    select distinct user_id, country_code, city_name, type_interaction, ts 
+    from awsdatacatalog.marketing_db.fact_product
+    where datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d')
+    and datehour < date_format(current_date, '%Y/%m/%d') 
+    and country_code = 'DE'
+    and type_interaction ='action.user.create'
+    group by country_code, type_interaction, ts, user_id, city_name
+    ),
+
+    d0_5gpd as(
+    select new_regs.user_id, date(new_regs.ts) as "reg_day", fact_product.country_code, fact_product.type_interaction, date(fact_product.ts) as "gpd_day",
+        sum(case when fact_product.type_interaction = 'action.getposts.details_new' then 1 else 0 end) as "GPD"
+    from new_regs
+    join awsdatacatalog.marketing_db.fact_product
+        on awsdatacatalog.marketing_db.fact_product.user_id = new_regs.user_id
+    where fact_product.datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d')
+    and fact_product.datehour <=  date_format(new_regs.ts + interval '1' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.getposts.details_new'
+    group by new_regs.user_id, date(new_regs.ts), fact_product.country_code, fact_product.type_interaction, date(fact_product.ts)
+    having sum(case when fact_product.type_interaction = 'action.getposts.details_new' then 1 else 0 end) >= 5
+    ),
+
+    d0_VoteUp as(
+    select new_regs.user_id as user_id, date(new_regs.ts) as "reg_day", fact_product.country_code, fact_product.type_interaction, date(fact_product.ts) as "d0vote_day",
+        sum(case when fact_product.type_interaction = 'action.post.voteup' then 1 else 0 end) as "VoteUp"
+    from new_regs
+    join awsdatacatalog.marketing_db.fact_product
+        on fact_product.user_id = new_regs.user_id
+    where fact_product.datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d') 
+    and fact_product.datehour <  date_format(new_regs.ts + interval '1' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.post.voteup'
+    group by new_regs.user_id, date(new_regs.ts), fact_product.country_code, fact_product.type_interaction, date(fact_product.ts)
+    having sum(case when fact_product.type_interaction = 'action.post.voteup' then 1 else 0 end) >= 1
+    )
+
+    select distinct d0_VoteUp.user_id, date(new_regs.ts) as "reg_day", new_regs.country_code
+    from new_regs
+    join d0_5gpd
+    on new_regs.user_id = d0_5gpd.user_id
+    join d0_VoteUp
+    on d0_VoteUp.user_id = d0_5gpd.user_id
+    
+)
+    select distinct d0_activated.user_id, d0_activated.reg_day as "reg_day", date(fact_product.ts) as "D1return_day", d0_activated.country_code
+    from d0_activated
+    left join awsdatacatalog.marketing_db.fact_product
+    on d0_activated.user_id = fact_product.user_id
+    where datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d')
+    and datehour < date_format(current_date, '%Y/%m/%d') 
+    and fact_product.type_interaction in ('action.getposts.details_new','action.getposts.location_triple')
+    and fact_product.type_interaction != 'action.user.create'
+    and fact_product.country_code = 'DE'
+),
+
+VoteUp as(
+with
+        new_user_lookback7 as (
+        select distinct user_id, country_code, city_name, type_interaction, ts 
+        from awsdatacatalog.marketing_db.fact_product
+        where datehour >= date_format(current_date - interval '8' day, '%Y/%m/%d')
+        and datehour < date_format(current_date - interval '1' day, '%Y/%m/%d') 
+        and country_code = 'DE'
+        and type_interaction ='action.user.create'
+        group by country_code, type_interaction, ts, user_id, city_name
+        )
+
+    select new_user_lookback7.user_id, date(new_user_lookback7.ts) as "reg_day" , 
+    new_user_lookback7.country_code, new_user_lookback7.city_name, fact_product.type_interaction, 
+    date(fact_product.ts) as "vote_day"
+    from new_user_lookback7
+    left join awsdatacatalog.marketing_db.fact_product
+        on new_user_lookback7.user_id = fact_product.user_id
+        
+    where fact_product.datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d') 
+    and fact_product.datehour <  date_format(current_date, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.post.voteup'
+    and fact_product.type_interaction != 'action.user.create'
+    and fact_product.country_code = 'DE'
+    group by new_user_lookback7.user_id, new_user_lookback7.country_code, new_user_lookback7.city_name, fact_product.type_interaction, date(fact_product.ts),
+    date(new_user_lookback7.ts)
+),
+
+
+
+
+
+
+retention15_activated as(
+with
+    activated_lookback15 as (
+    with
+    new_regs_15 as(
+    select distinct user_id, country_code, city_name, type_interaction, ts 
+    from awsdatacatalog.marketing_db.fact_product
+    where datehour >= date_format(current_date - interval '15' day, '%Y/%m/%d')
+    and datehour < date_format(current_date - interval '14' day, '%Y/%m/%d') 
+    and country_code = 'DE'
+    and type_interaction ='action.user.create'
+    group by country_code, type_interaction, ts, user_id, city_name
+    ),
+
+    d0_5gpd_15 as(
+    select new_regs_15.user_id, 
+        sum(case when fact_product.type_interaction = 'action.getposts.details_new' then 1 else 0 end) as "GPD"
+    from new_regs_15
+    join awsdatacatalog.marketing_db.fact_product
+        on awsdatacatalog.marketing_db.fact_product.user_id = new_regs_15.user_id
+    where fact_product.datehour >= date_format(current_date - interval '15' day, '%Y/%m/%d')
+    and fact_product.datehour <=  date_format(date(new_regs_15.ts) + interval '1' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.getposts.details_new'
+    group by new_regs_15.user_id
+    having sum(case when fact_product.type_interaction = 'action.getposts.details_new' then 1 else 0 end) >= 5
+    ),
+
+    d0_VoteUp_15 as(
+    select new_regs_15.user_id as user_id,
+        sum(case when fact_product.type_interaction = 'action.post.voteup' then 1 else 0 end) as "VoteUp"
+    from new_regs_15
+    join awsdatacatalog.marketing_db.fact_product
+        on fact_product.user_id = new_regs_15.user_id
+    where fact_product.datehour >= date_format(current_date - interval '15' day, '%Y/%m/%d') 
+    and fact_product.datehour <  date_format(new_regs_15.ts + interval '1' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.post.voteup'
+    group by new_regs_15.user_id, fact_product.type_interaction
+    having sum(case when fact_product.type_interaction = 'action.post.voteup' then 1 else 0 end) >= 1
+    ),
+    
+  VoteUp_15 as (  
+    select user_id, date(fact_product.ts) as "w0_vote_day"
+    from awsdatacatalog.marketing_db.fact_product
+    where fact_product.datehour >= date_format(current_date - interval '14' day, '%Y/%m/%d') 
+    and fact_product.datehour <  date_format(current_date - interval '8' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.post.voteup'
+    group by user_id, date(fact_product.ts)
+    )
+    select VoteUp_15.user_id, date(new_regs_15.ts) as "reg_day", new_regs_15.country_code
+    from new_regs_15
+    join d0_5gpd_15
+        on d0_5gpd_15.user_id = new_regs_15.user_id
+    join d0_VoteUp_15
+        on d0_5gpd_15.user_id = d0_VoteUp_15.user_id
+    join VoteUp_15
+        on d0_VoteUp_15.user_id = VoteUp_15.user_id
+
+)
+    
+    select distinct activated_lookback15.user_id, activated_lookback15.reg_day, date(fact_product.ts) as "D15return_day", activated_lookback15.country_code
+    from activated_lookback15
+    left join awsdatacatalog.marketing_db.fact_product
+    on activated_lookback15.user_id = fact_product.user_id
+    where datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d')
+    and datehour < date_format(current_date, '%Y/%m/%d') 
+    and fact_product.type_interaction in ('action.getposts.details_new','action.getposts.location_triple')
+    and fact_product.type_interaction != 'action.user.create'
+    and fact_product.country_code = 'DE'
+),
+
+retention30_activated as(
+with
+    activated_lookback30 as (
+    with
+    new_regs_30 as(
+    select distinct user_id, country_code, city_name, type_interaction, ts 
+    from awsdatacatalog.marketing_db.fact_product
+    where datehour >= date_format(current_date - interval '31' day, '%Y/%m/%d')
+    and datehour < date_format(current_date - interval '30' day, '%Y/%m/%d') 
+    and country_code = 'DE'
+    and type_interaction ='action.user.create'
+    group by country_code, type_interaction, ts, user_id, city_name
+    ),
+
+    d0_5gpd_30 as(
+    select new_regs_30.user_id, 
+        sum(case when fact_product.type_interaction = 'action.getposts.details_new' then 1 else 0 end) as "GPD"
+    from new_regs_30
+    join awsdatacatalog.marketing_db.fact_product
+        on awsdatacatalog.marketing_db.fact_product.user_id = new_regs_30.user_id
+    where fact_product.datehour >= date_format(current_date - interval '31' day, '%Y/%m/%d')
+    and fact_product.datehour <=  date_format(date(new_regs_30.ts) + interval '1' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.getposts.details_new'
+    group by new_regs_30.user_id
+    having sum(case when fact_product.type_interaction = 'action.getposts.details_new' then 1 else 0 end) >= 5
+    ),
+
+    d0_VoteUp_30 as(
+    select new_regs_30.user_id as user_id,
+        sum(case when fact_product.type_interaction = 'action.post.voteup' then 1 else 0 end) as "VoteUp"
+    from new_regs_30
+    join awsdatacatalog.marketing_db.fact_product
+        on fact_product.user_id = new_regs_30.user_id
+    where fact_product.datehour >= date_format(current_date - interval '31' day, '%Y/%m/%d') 
+    and fact_product.datehour <  date_format(new_regs_30.ts + interval '1' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.post.voteup'
+    group by new_regs_30.user_id, fact_product.type_interaction
+    having sum(case when fact_product.type_interaction = 'action.post.voteup' then 1 else 0 end) >= 1
+    ),
+    
+  VoteUp_30 as (  
+    select user_id, date(fact_product.ts) as "w0_vote_day"
+    from awsdatacatalog.marketing_db.fact_product
+    where fact_product.datehour >= date_format(current_date - interval '30' day, '%Y/%m/%d') 
+    and fact_product.datehour <  date_format(current_date - interval '23' day, '%Y/%m/%d')
+    and fact_product.type_interaction = 'action.post.voteup'
+    group by user_id, date(fact_product.ts)
+    )
+    select VoteUp_30.user_id, date(new_regs_30.ts) as "reg_day", new_regs_30.country_code
+    from new_regs_30
+    join d0_5gpd_30
+        on d0_5gpd_30.user_id = new_regs_30.user_id
+    join d0_VoteUp_30
+        on d0_5gpd_30.user_id = d0_VoteUp_30.user_id
+    join VoteUp_30
+        on d0_VoteUp_30.user_id = VoteUp_30.user_id
+
+    )
+        
+    select distinct activated_lookback30.user_id, activated_lookback30.reg_day, date(fact_product.ts) as "D30return_day", activated_lookback30.country_code
+    from activated_lookback30
+    left join awsdatacatalog.marketing_db.fact_product
+    on activated_lookback30.user_id = fact_product.user_id
+    where datehour >= date_format(current_date - interval '2' day, '%Y/%m/%d')
+    and datehour < date_format(current_date, '%Y/%m/%d') 
+    and fact_product.type_interaction in ('action.getposts.details_new','action.getposts.location_triple')
+    and fact_product.type_interaction != 'action.user.create'
+    and fact_product.country_code = 'DE'
+)
+
+    
+
+
+select new_regs.country_code as "country", 
+    new_regs.city_name as "reg_city", 
+    count(distinct new_regs.user_id) as "new_regs", 
+    count(distinct d0_5gpd.user_id) as "d0_5gpd",
+    count(distinct d0_VoteUp.user_id) as "d0_voteup",
+    count(distinct VoteUp.user_id) as "w0_voteup",
+    count(distinct retention1_activated.user_id) as "D1returner_activated",
+    count(distinct retention15_activated.user_id) as "D15returner_activated",
+    count(distinct retention30_activated.user_id) as "D30returner_activated",
+    date(new_regs.ts) as "reg_day",
+    VoteUp.vote_day,
+    VoteUp.reg_day as "voteup_regday",
+    retention1_activated.reg_day as "d1_activated_regday",
+    retention1_activated.D1return_day as "D1return_day_activated",
+    retention15_activated.reg_day as "d15_activated_regday", 
+    retention15_activated.D15return_day as "D15return_day_activated",
+    retention30_activated.reg_day as "d30_activated_regday",
+    retention30_activated.D30return_day as "D30return_day_activated"
+    
+    from new_regs
+    left join d0_5gpd
+        on new_regs.user_id = d0_5gpd.user_id
+    left join d0_VoteUp
+        on d0_5gpd.user_id = d0_VoteUp.user_id
+    left join VoteUp
+        on d0_VoteUp.user_id = VoteUp.user_id
+    left join retention1_activated
+        on new_regs.reg_day = retention1_activated.D1return_day
+    left join retention15_activated
+        on new_regs.reg_day = retention15_activated.D15return_day
+    left join retention30_activated
+        on new_regs.reg_day = retention30_activated.D30return_day
+        
+group by
+    new_regs.country_code, 
+    new_regs.city_name,
+    date(new_regs.ts), 
+    VoteUp.vote_day,
+    VoteUp.reg_day,
+    retention1_activated.reg_day,
+    retention1_activated.D1return_day,
+    retention15_activated.reg_day,
+    retention15_activated.D15return_day,
+    retention30_activated.reg_day,
+    retention30_activated.D30return_day
